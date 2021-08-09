@@ -1,0 +1,102 @@
+---
+title: "Data_exploration"
+output: html_notebook
+---
+# Libraries
+```{r}
+library(faraway)
+library(dplyr)
+library(tidyverse)
+library(ggplot2)
+library(reshape2)
+```
+
+
+# pulling in DFs and Merging
+```{r}
+#red wines
+Red_wine <- read.csv("wineQualityReds.csv", header=TRUE, sep = ",")
+Red_wine$Type <- 'Red'
+
+#white wines
+White_wine <- read.csv("wineQualityWhites.csv", header=TRUE, sep = ",")
+White_wine$Type <- 'White'
+
+## consolidated
+Data <- rbind(Red_wine,White_wine)
+drops <- c("X")
+Data <- Data[ , !(names(Data) %in% drops)]
+Data
+
+##create final DF
+write.csv(Data,"/Users/colinobrien/Desktop/repo/stats_6021/Stats_project_group_6/Data.csv", row.names = FALSE)
+write.csv(Data,"/Users/colinobrien/Desktop/repo/stats_6021/Stats_project_group_6/Data", row.names = FALSE)
+## both the Data and Data csv are the same. I know people prefer one format vs the other so I made both
+
+```
+# Creating Training and testing Data
+
+```{r}
+set.seed(90210)
+sample<-sample.int(nrow(Data), floor(.80*nrow(Data)), replace = F)
+train<-Data[sample, ] ##training data
+test<-Data[-sample, ] ##test data
+```
+
+
+
+# Some General Data Explortation
+```{r}
+
+drops_type <- c("Type")
+No_Type_train <- train[ , !(names(train) %in% drops_type)]
+# No_Type
+
+pairs(No_Type_train, lower.panel = NULL)
+```
+```{r}
+cor_train_no_type <- cor(No_Type_train)
+cor_train_no_type
+```
+```{r}
+T_F_cor <- abs(cor_train_no_type)>.7
+T_F_cor
+```
+total.sulfur.dioxide and free.sulfur.dioxide are pretty highly correlated (positive). Neither have high VIF scores below though
+
+
+```{r}
+## create melted
+melted_cor_train_no_type <- melt(cor_train_no_type)
+# head(melted_cor_train_no_type)
+
+##create heat map
+ggplot(data = melted_cor_train_no_type, aes(x=Var1, y=Var2, fill=value)) + 
+  geom_tile(color = "white")+
+  scale_fill_gradient2(low = "blue", high = "red", mid = "white", midpoint = 0, limit = c(-1,1), space = "Lab", name="Pearson\nCorrelation") +
+  theme_minimal()+ 
+  theme(axis.text.x = element_text(angle = 45, vjust = 1, size = 12, hjust = 1))+
+  coord_fixed()
+```
+alc/densit and free.sulfur.dioxide/total.sulfur.dioxide have the strongest corelations
+
+#### http://www.sthda.com/english/wiki/ggplot2-quick-correlation-matrix-heatmap-r-software-and-data-visualization  Source used to help create heatmap
+
+
+```{r}
+vif(No_Type_train)
+```
+
+Within the training, Density, residual.sugar have a high VIF score. fixed.acidity and alcohol are borderline
+
+
+
+
+
+
+
+
+
+
+
+#
