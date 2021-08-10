@@ -29,11 +29,26 @@ Data <- Data[ , !(names(Data) %in% drops)]
 Data
 
 ##create final DF
-write.csv(Data,"/Users/colinobrien/Desktop/repo/stats_6021/Stats_project_group_6/Data.csv", row.names = FALSE)
-write.csv(Data,"/Users/colinobrien/Desktop/repo/stats_6021/Stats_project_group_6/Data", row.names = FALSE)
+# write.csv(Data,"/Users/colinobrien/Desktop/repo/stats_6021/Stats_project_group_6/Data.csv", row.names = FALSE)
+# write.csv(Data,"/Users/colinobrien/Desktop/repo/stats_6021/Stats_project_group_6/Data", row.names = FALSE)
 ## both the Data and Data csv are the same. I know people prefer one format vs the other so I made both
 
 ```
+
+
+```{r}
+Data_Final <- Data %>%
+  mutate(cat_quality = 
+           case_when(quality<6 ~ 'Low',
+                     quality>=6 ~ 'High')
+         )
+Data_Final
+
+write.csv(Data_Final,"/Users/colinobrien/Desktop/repo/stats_6021/Stats_project_group_6/Data.csv", row.names = FALSE)
+
+
+```
+
 # Creating Training and testing Data
 
 ```{r}
@@ -41,6 +56,8 @@ set.seed(90210)
 sample<-sample.int(nrow(Data), floor(.80*nrow(Data)), replace = F)
 train<-Data[sample, ] ##training data
 test<-Data[-sample, ] ##test data
+
+
 ```
 
 
@@ -68,7 +85,7 @@ total.sulfur.dioxide and free.sulfur.dioxide are pretty highly correlated (posit
 ```{r}
 ## create melted
 melted_cor_train_no_type <- melt(cor_train_no_type)
-# head(melted_cor_train_no_type)
+head(melted_cor_train_no_type)
 
 ##create heat map
 ggplot(data = melted_cor_train_no_type, aes(x=Var1, y=Var2, fill=value)) + 
@@ -89,14 +106,84 @@ vif(No_Type_train)
 
 Within the training, Density, residual.sugar have a high VIF score. fixed.acidity and alcohol are borderline
 
+## cor for red and for white
 
 
+```{r}
+# Red_wine
+# White_wine
+#### go back and make this TRAINING !!!!!!!!!!
+drops_type <- c("Type")
+No_Type_white <- White_wine[ , !(names(White_wine) %in% drops_type)]
+drops <- c("X")
+No_Type_white <- No_Type_white[ , !(names(No_Type_white) %in% drops)]
+##creating cor
+No_Type_white_cor <- cor(No_Type_white)
+#melt
+melted_white <- melt(No_Type_white_cor)
+melted_white
+
+#create heat map
+ggplot(data = melted_white, aes(x=Var1, y=Var2, fill=value)) +
+  geom_tile(color = "white")+
+  scale_fill_gradient2(low = "blue", high = "red", mid = "white", midpoint = 0, limit = c(-1,1), space = "Lab", name="Pearson\nCorrelation") +
+  theme_minimal()+
+  theme(axis.text.x = element_text(angle = 45, vjust = 1, size = 12, hjust = 1))+
+  coord_fixed()+
+  labs(title = 'White')
+#############
+#red
+#############
+drops_type <- c("Type")
+No_Type_Red <- Red_wine[ , !(names(Red_wine) %in% drops_type)]
+drops <- c("X")
+No_Type_Red <- No_Type_Red[ , !(names(No_Type_Red) %in% drops)]
+##creating cor
+No_Type_Red_cor <- cor(No_Type_Red)
+#melt
+melted_Red <- melt(No_Type_Red_cor)
+melted_Red
+
+#create heat map
+ggplot(data = melted_Red, aes(x=Var1, y=Var2, fill=value)) +
+  geom_tile(color = "white")+
+  scale_fill_gradient2(low = "blue", high = "red", mid = "white", midpoint = 0, limit = c(-1,1), space = "Lab", name="Pearson\nCorrelation") +
+  theme_minimal()+
+  theme(axis.text.x = element_text(angle = 45, vjust = 1, size = 12, hjust = 1))+
+  coord_fixed()+
+  labs(title = 'Red')
 
 
+### finding the dif
+
+the_dif <- No_Type_Red_cor-No_Type_white_cor
+the_dif
+```
 
 
+```{r}
+### finding the dif
+
+the_dif <- No_Type_Red_cor-No_Type_white_cor
+the_dif
+```
+```{r}
+melted_dif <- melt(the_dif)
+#create heat map
+ggplot(data = melted_dif, aes(x=Var1, y=Var2, fill=value)) +
+  geom_tile(color = "white")+
+  scale_fill_gradient2(low = "blue", high = "red", mid = "white", midpoint = 0, limit = c(-.5,.5), space = "Lab", name="Pearson\nCorrelation") +
+  theme_minimal()+
+  theme(axis.text.x = element_text(angle = 45, vjust = 1, size = 12, hjust = 1))+
+  coord_fixed()+
+  labs(title = 'Red')
+```
 
 
+```{r}
+ggplot(data = Data) + 
+  geom_bar(mapping = aes(x = quality, fill = Type))
+```
 
 
 #
