@@ -1,0 +1,345 @@
+---
+title: "R Notebook"
+output: html_notebook
+---
+
+
+
+```{r}
+library(faraway)
+library(dplyr)
+library(tidyverse)
+library(ggplot2)
+library(reshape2)
+library(leaps)
+```
+
+```{r}
+Data_Final <- read.csv("Data_Final.csv", header=TRUE, sep = ",")
+Data_Final
+```
+```{r}
+set.seed(90210)
+sample<-sample.int(nrow(Data_Final), floor(.80*nrow(Data_Final)), replace = F)
+train<-Data_Final[sample, ] ##training data
+test<-Data_Final[-sample, ] ##test data
+
+train
+```
+### changing factors
+```{r}
+#training
+train$cat_quality<-factor(train$cat_quality)
+levels(train$cat_quality) <- c(1,0)
+levels(train$cat_quality)
+
+
+train$Type<-factor(train$Type)
+levels(train$Type) <- c(1,0)
+levels(train$Type)
+
+train
+
+
+#test
+test$cat_quality<-factor(test$cat_quality)
+levels(test$cat_quality) <- c(1,0)
+levels(test$cat_quality)
+
+
+test$Type<-factor(test$Type)
+levels(test$Type) <- c(1,0)
+levels(test$Type)
+
+test
+```
+
+
+### added the press formula
+```{r}
+get_press <- function(model) {
+  sum(((model$residuals)/ (1- (lm.influence(model)$hat)))^2)
+}
+```
+
+
+
+
+#running regression 
+## first go
+
+```{r}
+full<-glm(cat_quality~fixed.acidity+volatile.acidity+citric.acid+residual.sugar+total.sulfur.dioxide+density+chlorides+free.sulfur.dioxide+pH+sulphates+alcohol+Type, family=binomial, data=train)
+summary(full)
+```
+
+
+```{r}
+
+## removed all insignifigant
+reduced_1<-glm(cat_quality~volatile.acidity+residual.sugar+total.sulfur.dioxide+density+free.sulfur.dioxide+pH+sulphates+alcohol+Type, family=binomial, data=train)
+summary(reduced_1)
+```
+
+
+```{r}
+##evaluating model
+Reduced1_AIC_train <- reduced_1$aic
+
+##predicted quality for test data based on training data
+preds<-predict(reduced_1,newdata=test, type="response")
+
+reduced_1_error <- table(test$cat_quality, preds>0.5)
+
+evulation_summary <- data.frame(
+  attempt = 'reduced_1',
+  AIC = Reduced1_AIC_train,
+  PRESS = get_press(reduced_1),
+  'False positive' = round(reduced_1_error[3]/(reduced_1_error[1]+reduced_1_error[3]),3),
+  'False negative' = round(reduced_1_error[2]/(reduced_1_error[2]+reduced_1_error[4]),3),
+  'Error Rate' = round((reduced_1_error[2]+reduced_1_error[3])/(reduced_1_error[1]+reduced_1_error[2]+reduced_1_error[3]+reduced_1_error[4]),3)
+)
+evulation_summary
+```
+
+## Second go
+
+```{r}
+#this time looking at VIF scores
+drops_type <- c("Type","quality")
+Round_2_train <- train[ , !(names(train) %in% drops_type)]
+Round_2_train
+
+# vif(Round_2_train)
+
+```
+
+
+
+```{r}
+
+## take out alc (highly correlated with Density)
+reduced_2<-glm(cat_quality~fixed.acidity+volatile.acidity+citric.acid+residual.sugar+total.sulfur.dioxide+density+chlorides+free.sulfur.dioxide+pH+sulphates+Type, family=binomial, data=train)
+summary(reduced_2)
+```
+```{r}
+
+
+## removed citric.acid and chlorides based on p values
+reduced_2_2<-glm(cat_quality~fixed.acidity+volatile.acidity+residual.sugar+total.sulfur.dioxide+density+free.sulfur.dioxide+pH+sulphates+Type, family=binomial, data=train)
+summary(reduced_2_2)
+```
+
+```{r}
+##evaluating model
+Reduced2_AIC_train <- reduced_2_2$aic
+
+##predicted quality for test data based on training data
+preds<-predict(reduced_2_2,newdata=test, type="response")
+
+reduced_2_2_error <- table(test$cat_quality, preds>0.5)
+
+evulation_summary_2 <- data.frame(
+  attempt = 'reduced_2_2_error',
+  AIC = Reduced2_AIC_train,
+  PRESS = get_press(reduced_2_2),
+  'False positive' = round(reduced_2_2_error[3]/(reduced_2_2_error[1]+reduced_2_2_error[3]),3),
+  'False negative' = round(reduced_2_2_error[2]/(reduced_2_2_error[2]+reduced_2_2_error[4]),3),
+  'Error Rate' = round((reduced_2_2_error[2]+reduced_2_2_error[3])/(reduced_2_2_error[1]+reduced_2_2_error[2]+reduced_2_2_error[3]+reduced_2_2_error[4]),3)
+)
+
+evulation_summary <- rbind(evulation_summary,evulation_summary_2)
+evulation_summary
+```
+## third go
+
+this time I try all possible regressions
+
+```{r}
+## https://rstudio-pubs-static.s3.amazonaws.com/2897_9220b21cfc0c43a396ff9abf122bb351.html
+```
+
+
+```{r}
+regsubsets.out <-
+    regsubsets(cat_quality~fixed.acidity+volatile.acidity+citric.acid+residual.sugar+total.sulfur.dioxide+density+chlorides+free.sulfur.dioxide+pH+sulphates+alcohol+Type,
+               data = train,
+               nbest = 1,       # 1 best model for each number of predictors
+               nvmax = NULL,    # NULL for no limit on number of variables
+               force.in = NULL, force.out = NULL,
+               method = "exhaustive")
+regsubsets.out
+```
+
+```{r}
+summary.out <- summary(regsubsets.out)
+as.data.frame(summary.out$outmat)
+```
+
+```{r}
+## Adjusted R2
+plot(regsubsets.out, scale = "adjr2", main = "Adjusted R^2")
+```
+Based on this chart, the model with the lowest R^2 would have all 
+
+
+```{r}
+reduced_3<-glm(cat_quality~fixed.acidity+volatile.acidity+citric.acid+residual.sugar+total.sulfur.dioxide+density+chlorides+free.sulfur.dioxide+pH+sulphates+alcohol+Type, family=binomial, data=train)
+summary(reduced_3)
+```
+
+```{r}
+##evaluating model
+Reduced3_AIC_train <- reduced_3$aic
+
+##predicted quality for test data based on training data
+preds<-predict(reduced_3,newdata=test, type="response")
+
+reduced_3_error <- table(test$cat_quality, preds>0.5)
+
+evulation_summary_3 <- data.frame(
+  attempt = 'reduced_3_error',
+  AIC = Reduced3_AIC_train,
+  PRESS = get_press(reduced_3),
+  'False positive' = round(reduced_3_error[3]/(reduced_3_error[1]+reduced_3_error[3]),3),
+  'False negative' = round(reduced_3_error[2]/(reduced_3_error[2]+reduced_3_error[4]),3),
+  'Error Rate' = round((reduced_3_error[2]+reduced_3_error[3])/(reduced_3_error[1]+reduced_3_error[2]+reduced_3_error[3]+reduced_3_error[4]),3)
+)
+
+evulation_summary <- rbind(evulation_summary,evulation_summary_3)
+evulation_summary
+```
+
+
+## go 4 (did not finished)
+Given the number of parameters, I used the best possible model method this time :-)
+
+```{r}
+# ## Mallow Cp
+# library(car)
+# regsubsets.out_2 <-
+#     regsubsets(quality~fixed.acidity+volatile.acidity+citric.acid+residual.sugar+total.sulfur.dioxide+density+chlorides+free.sulfur.dioxide+pH+sulphates+alcohol+Type,
+#                data = train,
+#                nbest = 1,       # 1 best model for each number of predictors
+#                nvmax = NULL,    # NULL for no limit on number of variables
+#                force.in = NULL, force.out = NULL,
+#                method = "exhaustive")
+# regsubsets.out_2
+# 
+# 
+# res.legend_2 <-subsets(regsubsets.out_2, statistic="cp", legend = FALSE, min.size = 8, main = "Mallow Cp")
+# abline(a = 1, b = 1, lty = 2)
+# res.legend_2
+```
+
+
+
+
+
+```{r}
+# install.packages("bestglm")
+library(bestglm)
+## Prepare data
+train.for.best.logistic <- within(train, {
+    quality <- NULL
+    y <- cat_quality 
+})
+
+## Reorder variables
+train.for.best.logistic <-
+    train.for.best.logistic[, c("fixed.acidity","volatile.acidity","citric.acid","residual.sugar","total.sulfur.dioxide","density","chlorides","free.sulfur.dioxide",'pH','sulphates','alcohol','Type',"y")]
+
+## Perform
+res.best.logistic <-
+    bestglm(Xy = train.for.best.logistic,
+            family = binomial,          # binomial family for logistic
+            IC = "AIC",                 # Information criteria for
+            method = "exhaustive")
+```
+
+
+```{r}
+res.best.logistic$BestModels
+```
+
+```{r}
+summary(res.best.logistic$BestModel)
+```
+
+```{r}
+
+reduced_4 <- res.best.logistic$BestModel
+##evaluating model
+Reduced4_AIC_train <- reduced_4$aic
+
+##predicted quality for test data based on training data
+preds<-predict(reduced_4,newdata=test, type="response")
+
+reduced_4_error <- table(test$cat_quality, preds>0.5)
+
+evulation_summary_4 <- data.frame(
+  attempt = 'reduced_4_error',
+  AIC = Reduced4_AIC_train,
+  PRESS = get_press(reduced_4),
+  'False positive' = round(reduced_4_error[3]/(reduced_4_error[1]+reduced_4_error[3]),3),
+  'False negative' = round(reduced_4_error[2]/(reduced_4_error[2]+reduced_4_error[4]),3),
+  'Error Rate' = round((reduced_4_error[2]+reduced_4_error[3])/(reduced_4_error[1]+reduced_4_error[2]+reduced_4_error[3]+reduced_4_error[4]),3)
+)
+
+evulation_summary <- rbind(evulation_summary,evulation_summary_4)
+evulation_summary
+```
+
+## go 5
+
+here I was curious as to what would be variables that anyone could quickly access (not needing to go to a lab) via a wine label/tasting the wine. 
+
+
+
+```{r}
+easy_peasy <- c('residual.sugar','chlorides','Type','density', 'pH', 'alcohol')
+```
+
+```{r}
+reduced_5<-glm(cat_quality~residual.sugar+chlorides+Type+density+pH+alcohol, family=binomial, data=train)
+summary(reduced_5)
+```
+Since Density is correlated with alc and acl has low p, remove Density 
+
+```{r}
+reduced_5_2<-glm(cat_quality~residual.sugar+chlorides+Type+pH+alcohol, family=binomial, data=train)
+summary(reduced_5_2)
+```
+
+Due to high P, removing pH 
+
+```{r}
+reduced_5_3<-glm(cat_quality~residual.sugar+chlorides+Type+alcohol, family=binomial, data=train)
+summary(reduced_5_3)
+```
+
+```{r}
+
+Reduced5_AIC_train <- reduced_5_3$aic
+
+##predicted quality for test data based on training data
+preds<-predict(reduced_5_3,newdata=test, type="response")
+
+reduced_5_error <- table(test$cat_quality, preds>0.5)
+
+evulation_summary_5 <- data.frame(
+  attempt = 'reduced_5_error',
+  AIC = Reduced5_AIC_train,
+  PRESS = get_press(reduced_5_3),
+  'False positive' = round(reduced_5_error[3]/(reduced_5_error[1]+reduced_5_error[3]),3),
+  'False negative' = round(reduced_5_error[2]/(reduced_5_error[2]+reduced_5_error[4]),3),
+  'Error Rate' = round((reduced_5_error[2]+reduced_5_error[3])/(reduced_5_error[1]+reduced_5_error[2]+reduced_5_error[3]+reduced_5_error[4]),3)
+)
+
+
+evulation_summary <- rbind(evulation_summary,evulation_summary_5)
+evulation_summary
+```
+
+
+
