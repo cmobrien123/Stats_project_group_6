@@ -3,8 +3,6 @@ title: "R Notebook"
 output: html_notebook
 ---
 
-
-
 ```{r}
 library(faraway)
 library(dplyr)
@@ -360,8 +358,6 @@ evulation_summary
 
 
 
-
-### tried runing Ryan Cox's, mine is swaped
 ```{r}
 result <- glm(formula = cat_quality ~ alcohol + volatile.acidity + density + 
     sulphates + residual.sugar + Type + total.sulfur.dioxide + 

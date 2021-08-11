@@ -1,0 +1,586 @@
+---
+title: "R Notebook"
+output: html_notebook
+---
+
+# pulling in DFs and Merging (still needed?)
+```{r}
+# #red wines
+# Red_wine <- read.csv("wineQualityReds.csv", header=TRUE, sep = ",")
+# Red_wine$Type <- 'Red'
+# 
+# #white wines
+# White_wine <- read.csv("wineQualityWhites.csv", header=TRUE, sep = ",")
+# White_wine$Type <- 'White'
+# 
+# ## consolidated
+# Data <- rbind(Red_wine,White_wine)
+# drops <- c("X")
+# Data <- Data[ , !(names(Data) %in% drops)]
+# Data
+# 
+# ##create final DF
+# # write.csv(Data,"/Users/colinobrien/Desktop/repo/stats_6021/Stats_project_group_6/Data.csv", row.names = FALSE)
+# # write.csv(Data,"/Users/colinobrien/Desktop/repo/stats_6021/Stats_project_group_6/Data", row.names = FALSE)
+# ## both the Data and Data csv are the same. I know people prefer one format vs the other so I made both
+
+```
+
+
+
+
+```{r}
+library(tidyverse)
+# library(ROCR)
+library(faraway)
+library(dplyr)
+library(ggplot2)
+library(reshape2)
+library(leaps)
+# install.packages("bestglm")
+library(bestglm)
+# install.packages("performance")
+library(performance)
+knitr::opts_chunk$set(echo = TRUE)
+
+## Load Datasets
+full_wines_final <- read.csv("Data_Final.csv", header = TRUE, stringsAsFactors=TRUE)
+# Drop quality for simplicity
+full_wines_binary <- subset(full_wines_final, select = -c(quality))
+## Convert to 0 and 1 for readability
+full_wines_binary$cat_quality <- as.integer(full_wines_binary$cat_quality == "High")
+
+set.seed(90210) ##for reproducibility
+sample<-sample.int(nrow(full_wines_binary), floor(.80*nrow(full_wines_binary)), replace = F)
+train<-full_wines_binary[sample, ] ##training data frame
+rownames(train) <- c(1:5197)
+test<-full_wines_binary[-sample, ] ##test data frame
+
+train
+```
+# EDA
+
+
+```{r}
+# drops_cats <- c("Type")
+# No_cat_train <- train[ , !(names(train) %in% drops_cats)]
+# # No_Type
+
+pairs(train, lower.panel = NULL)
+```
+
+```{r}
+# Convert Type to binary to 0 and 1 for correlation
+train$Type <- as.integer(train$Type == "White")
+test$Type <- as.integer(test$Type == "White")
+cor_train <- cor(train)
+cor_train
+```
+
+
+
+```{r}
+T_F_cor <- abs(cor_train)>.7
+T_F_cor
+```
+```{r}
+## create melted
+melted_cor_train <- melt(cor_train)
+
+##create heat map Consolidated
+ggplot(data = melted_cor_train, aes(x=Var1, y=Var2, fill=value)) + 
+  geom_tile(color = "white")+
+  scale_fill_gradient2(low = "blue", high = "red", mid = "white", midpoint = 0, limit = c(-1,1), space = "Lab", name="Pearson\nCorrelation") +
+  theme_minimal()+ 
+  theme(axis.text.x = element_text(angle = 45, vjust = 1, size = 12, hjust = 1))+
+  coord_fixed()+
+  labs(title = 'Consolidated (Both Red and White)')
+
+```
+
+```{r}
+## creating red and white
+train_White <- filter(train, Type == 1)
+train_Red <- filter(train, Type == 0)
+
+
+## droping red/white columns
+train_White_NoType <- subset(train_White, select = -c(Type))
+train_Red_NoType <- subset(train_Red, select = -c(Type))
+
+## creating correlations
+cor_train_White_NoType <- cor(train_White_NoType)
+cor_train_Red_NoType <- cor(train_Red_NoType)
+
+## melting
+melted_cor_train_white <- melt(cor_train_White_NoType)
+melted_cor_train_Red <- melt(cor_train_Red_NoType)
+
+##ploting
+
+##create heat map White
+ggplot(data = melted_cor_train_white, aes(x=Var1, y=Var2, fill=value)) +
+  geom_tile(color = "white")+
+  scale_fill_gradient2(low = "blue", high = "red", mid = "white", midpoint = 0, limit = c(-1,1), space = "Lab", name="Pearson\nCorrelation") +
+  theme_minimal()+
+  theme(axis.text.x = element_text(angle = 45, vjust = 1, size = 12, hjust = 1))+
+  coord_fixed()+
+  labs(title = 'White Wine')
+
+##create heat map Red
+ggplot(data = melted_cor_train_Red, aes(x=Var1, y=Var2, fill=value)) +
+  geom_tile(color = "white")+
+  scale_fill_gradient2(low = "blue", high = "red", mid = "white", midpoint = 0, limit = c(-1,1), space = "Lab", name="Pearson\nCorrelation") +
+  theme_minimal()+
+  theme(axis.text.x = element_text(angle = 45, vjust = 1, size = 12, hjust = 1))+
+  coord_fixed()+
+  labs(title = 'Red Wine')
+
+```
+
+```{r}
+ggplot(data = train, mapping = aes(x=Type)) + 
+  geom_bar()
+```
+
+# Regression Testing
+
+```{r}
+## press formula (from class)
+get_press <- function(model) {
+  sum(((model$residuals)/ (1- (lm.influence(model)$hat)))^2)
+}
+```
+
+
+```{r}
+## first go
+full<-glm(cat_quality~., family=binomial, data=train)
+summary(full)
+```
+```{r}
+## removed all insignificant
+reduced_1<-glm(formula = cat_quality~volatile.acidity+residual.sugar+free.sulfur.dioxide+total.sulfur.dioxide+density+pH+sulphates+alcohol+Type, family=binomial, data=train)
+summary(reduced_1)
+```
+
+```{r}
+##evaluating model
+Reduced1_AIC_train <- reduced_1$aic
+
+##predicted quality for test data based on training data
+preds<-predict(reduced_1,newdata=test, type="response")
+
+reduced_1_error <- table(test$cat_quality, preds>0.5)
+
+reduced_1_error
+
+evulation_summary <- data.frame(
+  attempt = 'reduced_1',
+  AIC = Reduced1_AIC_train,
+  PRESS = get_press(reduced_1),
+  'False positive' = round(reduced_1_error[3]/(reduced_1_error[1]+reduced_1_error[3]),3),
+  'False negative' = round(reduced_1_error[2]/(reduced_1_error[2]+reduced_1_error[4]),3),
+  'Error Rate' = round((reduced_1_error[2]+reduced_1_error[3])/(reduced_1_error[1]+reduced_1_error[2]+reduced_1_error[3]+reduced_1_error[4]),3)
+)
+evulation_summary
+```
+
+## second model
+## https://rstudio-pubs-static.s3.amazonaws.com/2897_9220b21cfc0c43a396ff9abf122bb351.html
+
+```{r}
+# install.packages("bestglm")
+## Prepare data
+train.for.best.logistic <- within(train, {
+    y <- cat_quality 
+})
+
+## Reorder variables
+train.for.best.logistic <-
+    train.for.best.logistic[, c("fixed.acidity","volatile.acidity","citric.acid","residual.sugar","total.sulfur.dioxide","density","chlorides","free.sulfur.dioxide",'pH','sulphates','alcohol','Type',"y")]
+
+## Perform
+res.best.logistic <-
+    bestglm(Xy = train.for.best.logistic,
+            family = binomial,          # binomial family for logistic
+            IC = "AIC",                 # Information criteria for
+            method = "exhaustive")
+```
+
+
+```{r}
+res.best.logistic$BestModels
+summary(res.best.logistic$BestModel)
+```
+```{r}
+reduced_4 <- res.best.logistic$BestModel
+##evaluating model
+Reduced4_AIC_train <- reduced_4$aic
+
+##predicted quality for test data based on training data
+preds<-predict(reduced_4,newdata=test, type="response")
+
+reduced_4_error <- table(test$cat_quality, preds>0.5)
+
+evulation_summary_4 <- data.frame(
+  attempt = 'reduced_4_error (all possible)',
+  AIC = Reduced4_AIC_train,
+  PRESS = get_press(reduced_4),
+  'False positive' = round(reduced_4_error[3]/(reduced_4_error[1]+reduced_4_error[3]),3),
+  'False negative' = round(reduced_4_error[2]/(reduced_4_error[2]+reduced_4_error[4]),3),
+  'Error Rate' = round((reduced_4_error[2]+reduced_4_error[3])/(reduced_4_error[1]+reduced_4_error[2]+reduced_4_error[3]+reduced_4_error[4]),3)
+)
+
+evulation_summary <- rbind(evulation_summary,evulation_summary_4)
+# evulation_summary
+```
+
+```{r}
+data.frame(check_collinearity(reduced_4))
+
+
+#come back and add df stuff
+```
+
+## in an effort to lower VIFs scores and correlation, I am removing fixed.acidity
+
+```{r}
+reduced_4_2<-glm(cat_quality~volatile.acidity+citric.acid+residual.sugar+total.sulfur.dioxide+density+free.sulfur.dioxide+pH+sulphates+alcohol+Type, family=binomial, data=train)
+summary(reduced_4_2)
+```
+```{r}
+##evaluating model
+Reduced4_2_AIC_train <- reduced_4_2$aic
+##predicted quality for test data based on training data
+preds<-predict(reduced_4_2,newdata=test, type="response")
+reduced_4_2_error <- table(test$cat_quality, preds>0.7)
+#Curves
+evulation_summary_4_2 <- data.frame(
+  attempt = 'reduced_4_2_error (post VIF adjustments)',
+  AIC = Reduced4_2_AIC_train,
+  PRESS = get_press(reduced_4_2),
+  'False positive' = round(reduced_4_2_error[3]/(reduced_4_2_error[1]+reduced_4_2_error[3]),3),
+  'False negative' = round(reduced_4_2_error[2]/(reduced_4_2_error[2]+reduced_4_2_error[4]),3),
+  'Error Rate' = round((reduced_4_2_error[2]+reduced_4_2_error[3])/(reduced_4_2_error[1]+reduced_4_2_error[2]+reduced_4_2_error[3]+reduced_4_2_error[4]),3)
+)
+
+evulation_summary <- rbind(evulation_summary,evulation_summary_4_2)
+evulation_summary
+
+
+```
+
+## now looking at outliers (with "best possible")
+
+```{r}
+summary(reduced_4)
+
+```
+
+
+# Now looking into outliers/influence
+
+```{r}
+p <- 12
+n <- 5197
+```
+
+### Cooks
+```{r}
+reduced_4_cook <-cooks.distance(reduced_4)
+reduced_4_cook[reduced_4_cook>qf(0.5,p,n-p)]
+```
+### DFFITs
+
+```{r}
+##dffits
+DFFITS<-dffits(reduced_4)
+DDFFITS_influence <- DFFITS[abs(DFFITS)>2*sqrt(p/n)]
+DDFFITS_influence
+```
+### DFBETAs
+```{r}
+DFBETAS<-dfbetas(reduced_4)
+abs(DFBETAS)>2/sqrt(n)
+```
+
+
+### leverage
+```{r}
+##leverages
+lev<-lm.influence(reduced_4)$hat
+##identify high leverage points
+leverages <- lev[lev>2*p/n]
+leverages
+```
+
+
+### outlier
+
+```{r}
+reduced_4.res <- reduced_4$residuals
+crit<-qt(1-0.05/(2*n), n-p-1)
+outliers <- reduced_4.res[abs(reduced_4.res)>crit]
+outliers
+```
+
+
+
+
+```{r}
+## outliers removed
+outliers_index <- attr(outliers, "names")
+outliers_index <- as.numeric(outliers_index)
+train_no_outliers <- train[-(outliers_index),]
+
+#leverages removed
+lererages_index <- attr(leverages, "names")
+lererages_index <- as.numeric(lererages_index)
+train_no_leverages <- train[-(lererages_index),]
+
+# DDFFITS_influence
+DDFFITS_index <- attr(DDFFITS_influence, "names")
+DDFFITS_index <- as.numeric(DDFFITS_index)
+train_no_DDFFITS <- train[-(DDFFITS_index),]
+
+# all "non-normal" removed
+all_special <- c(DDFFITS_index,lererages_index,outliers_index)
+train_nothing_special <- train[-(all_special),]
+train_nothing_special
+
+
+
+
+```
+
+## creating reduced 
+
+```{r}
+reduced_4_3 <- glm(cat_quality~volatile.acidity+citric.acid+residual.sugar+total.sulfur.dioxide+density+free.sulfur.dioxide+pH+sulphates+alcohol+Type, family=binomial, data=train_no_outliers)
+
+reduced_4_4_lev <- glm(cat_quality~volatile.acidity+citric.acid+residual.sugar+total.sulfur.dioxide+density+free.sulfur.dioxide+pH+sulphates+alcohol+Type, family=binomial, data=train_no_leverages)
+
+reduced_4_5_DDFFITS <- glm(cat_quality~volatile.acidity+citric.acid+residual.sugar+total.sulfur.dioxide+density+free.sulfur.dioxide+pH+sulphates+alcohol+Type, family=binomial, data=train_no_DDFFITS)
+
+reduced_4_6_no_special <- glm(cat_quality~volatile.acidity+citric.acid+residual.sugar+total.sulfur.dioxide+density+free.sulfur.dioxide+pH+sulphates+alcohol+Type, family=binomial, data=train_nothing_special)
+# summary(reduced_4_6_no_special)
+
+
+
+```
+
+
+```{r}
+## checking colinearity / VIF scores
+reduced_4_3_col <- data.frame('reduced_4_3' = check_collinearity(reduced_4_3))
+reduced_4_3_col_VIF <- reduced_4_3_col[c('reduced_4_3.Term','reduced_4_3.VIF')]
+reduced_4_3_col_VIF
+
+reduced_4_4_lev_col <- data.frame('reduced_4_4_lev' = check_collinearity(reduced_4_4_lev))
+reduced_4_4_lev_col_VIF <- reduced_4_4_lev_col[c('reduced_4_4_lev.Term','reduced_4_4_lev.VIF')]
+reduced_4_4_lev_col_VIF
+
+
+reduced_4_5_DDFFITS_col <- data.frame('reduced_4_5_DDFFITS' = check_collinearity(reduced_4_5_DDFFITS))
+reduced_4_5_DDFFITS_col_VIF <- reduced_4_5_DDFFITS_col[c('reduced_4_5_DDFFITS.Term','reduced_4_5_DDFFITS.VIF')]
+reduced_4_5_DDFFITS_col_VIF
+
+reduced_4_6_no_special_col <- data.frame('reduced_4_6_no_special' = check_collinearity(reduced_4_6_no_special))
+reduced_4_6_no_special_col_VIF <- reduced_4_6_no_special_col[c('reduced_4_6_no_special.Term','reduced_4_6_no_special.VIF')]
+reduced_4_6_no_special_col_VIF
+
+VIF_summary <- data.frame('0'=reduced_4_3_col_VIF['reduced_4_3.Term'],
+                          '1'=reduced_4_3_col_VIF['reduced_4_3.VIF'],
+                          '2'=reduced_4_4_lev_col_VIF['reduced_4_4_lev.VIF'],
+                          '3'=reduced_4_5_DDFFITS_col_VIF['reduced_4_5_DDFFITS.VIF'],
+                          '4'=reduced_4_6_no_special_col_VIF['reduced_4_6_no_special.VIF'])
+colnames(VIF_summary) <- c('Predictor Variable','4_3.VIF.Outliers','4_4_lev.VIF','4_5_DDFFITS.VIF','4_6_no_special.VIF')
+VIF_summary
+```
+
+
+```{r}
+##evaluating model
+Reduced4_3_AIC_train <- reduced_4_3$aic
+
+##predicted quality for test data based on training data
+preds<-predict(reduced_4_3,newdata=test, type="response")
+
+reduced_4_3_error <- table(test$cat_quality, preds>0.6)
+
+evulation_summary_4_3 <- data.frame(
+  attempt = 'reduced_4_3_error_outliers',
+  AIC = Reduced4_3_AIC_train,
+  PRESS = get_press(reduced_4_3),
+  'False positive' = round(reduced_4_3_error[3]/(reduced_4_3_error[1]+reduced_4_3_error[3]),3),
+  'False negative' = round(reduced_4_3_error[2]/(reduced_4_3_error[2]+reduced_4_3_error[4]),3),
+  'Error Rate' = round((reduced_4_3_error[2]+reduced_4_3_error[3])/(reduced_4_3_error[1]+reduced_4_3_error[2]+reduced_4_3_error[3]+reduced_4_3_error[4]),3)
+)
+
+evulation_summary <- rbind(evulation_summary,evulation_summary_4_3)
+evulation_summary
+```
+
+
+```{r}
+##evaluating model leverage
+reduced_4_4_lev_AIC_train <- reduced_4_4_lev$aic
+
+##predicted quality for test data based on training data
+preds<-predict(reduced_4_4_lev,newdata=test, type="response")
+
+reduced_4_4_lev_error <- table(test$cat_quality, preds>0.65)
+
+evulation_summary_4_4_lev <- data.frame(
+  attempt = 'reduced_4_4_lev_error',
+  AIC = reduced_4_4_lev_AIC_train,
+  PRESS = get_press(reduced_4_4_lev),
+  'False positive' = round(reduced_4_4_lev_error[3]/(reduced_4_4_lev_error[1]+reduced_4_4_lev_error[3]),3),
+  'False negative' = round(reduced_4_4_lev_error[2]/(reduced_4_4_lev_error[2]+reduced_4_4_lev_error[4]),3),
+  'Error Rate' = round((reduced_4_4_lev_error[2]+reduced_4_4_lev_error[3])/(reduced_4_4_lev_error[1]+reduced_4_4_lev_error[2]+reduced_4_4_lev_error[3]+reduced_4_4_lev_error[4]),3)
+)
+
+evulation_summary <- rbind(evulation_summary,evulation_summary_4_4_lev)
+evulation_summary
+```
+
+
+
+```{r}
+##evaluating model DDFFITS
+reduced_4_5_DDFFITS_AIC_train <- reduced_4_5_DDFFITS$aic
+
+##predicted quality for test data based on training data
+preds<-predict(reduced_4_5_DDFFITS,newdata=test, type="response")
+
+reduced_4_5_DDFFITS_error <- table(test$cat_quality, preds>0.7)
+
+evulation_summary_4_5_DDFFITS <- data.frame(
+  attempt = 'reduced_4_5_DDFFITS_error',
+  AIC = reduced_4_5_DDFFITS_AIC_train,
+  PRESS = get_press(reduced_4_5_DDFFITS),
+  'False positive' = round(reduced_4_5_DDFFITS_error[3]/(reduced_4_5_DDFFITS_error[1]+reduced_4_5_DDFFITS_error[3]),3),
+  'False negative' = round(reduced_4_5_DDFFITS_error[2]/(reduced_4_5_DDFFITS_error[2]+reduced_4_5_DDFFITS_error[4]),3),
+  'Error Rate' = round((reduced_4_5_DDFFITS_error[2]+reduced_4_5_DDFFITS_error[3])/(reduced_4_5_DDFFITS_error[1]+reduced_4_5_DDFFITS_error[2]+reduced_4_5_DDFFITS_error[3]+reduced_4_5_DDFFITS_error[4]),3)
+)
+
+evulation_summary <- rbind(evulation_summary,evulation_summary_4_5_DDFFITS)
+evulation_summary
+```
+
+```{r}
+##evaluating model DDFFITS
+reduced_4_6_no_special_AIC_train <- reduced_4_6_no_special$aic
+
+##predicted quality for test data based on training data
+preds<-predict(reduced_4_6_no_special,newdata=test, type="response")
+
+reduced_4_6_no_special_error <- table(test$cat_quality, preds>0.8)
+
+evulation_summary_4_6_no_special <- data.frame(
+  attempt = 'reduced_4_6_no_special_error',
+  AIC = reduced_4_6_no_special_AIC_train,
+  PRESS = get_press(reduced_4_6_no_special),
+  'False positive' = round(reduced_4_6_no_special_error[3]/(reduced_4_6_no_special_error[1]+reduced_4_6_no_special_error[3]),3),
+  'False negative' = round(reduced_4_6_no_special_error[2]/(reduced_4_6_no_special_error[2]+reduced_4_6_no_special_error[4]),3),
+  'Error Rate' = round((reduced_4_6_no_special_error[2]+reduced_4_6_no_special_error[3])/(reduced_4_6_no_special_error[1]+reduced_4_6_no_special_error[2]+reduced_4_6_no_special_error[3]+reduced_4_6_no_special_error[4]),3)
+)
+
+evulation_summary <- rbind(evulation_summary,evulation_summary_4_6_no_special)
+evulation_summary
+```
+
+
+## ROC Curves and AUC
+```{r}
+## reduced_1
+detach(package:performance, unload=TRUE)
+##FYI the performance package causes ROC curves to not work
+
+
+# reduced_1
+preds<-predict(reduced_1,newdata=test, type="response")
+rates<-prediction(preds, test$cat_quality)
+roc_result<-performance(rates,measure="tpr", x.measure="fpr")
+plot(roc_result, main="ROC Curve for reduced_1")
+lines(x = c(0,1), y = c(0,1), col="red")
+
+auc<-performance(rates, measure = "auc")
+reduced_1_auc <- auc@y.values
+
+## reduced_4
+preds<-predict(reduced_4,newdata=test, type="response")
+rates4<-prediction(preds, test$cat_quality)
+roc_result<-performance(rates4,measure="tpr", x.measure="fpr")
+plot(roc_result, main="ROC Curve for reduced_4")
+lines(x = c(0,1), y = c(0,1), col="red")
+
+auc4<-performance(rates4, measure = "auc")
+reduced_4_auc <- auc4@y.values
+
+## reduced_4_2
+preds<-predict(reduced_4_2,newdata=test, type="response")
+rates<-prediction(preds, test$cat_quality)
+roc_result<-performance(rates,measure="tpr", x.measure="fpr")
+plot(roc_result, main="ROC Curve for reduced_4_2")
+lines(x = c(0,1), y = c(0,1), col="red")
+
+auc4_2<-performance(rates, measure = "auc")
+reduced_4_2_auc <- auc4_2@y.values
+
+## reduced_4_3
+preds<-predict(reduced_4_3,newdata=test, type="response")
+rates<-prediction(preds, test$cat_quality)
+roc_result<-performance(rates,measure="tpr", x.measure="fpr")
+plot(roc_result, main="ROC Curve for reduced_4_3")
+lines(x = c(0,1), y = c(0,1), col="red")
+
+auc<-performance(rates, measure = "auc")
+reduced_4_3_auc <- auc@y.values
+
+## reduced_4_4_lev 
+preds<-predict(reduced_4_4_lev,newdata=test, type="response")
+rates<-prediction(preds, test$cat_quality)
+roc_result<-performance(rates,measure="tpr", x.measure="fpr")
+plot(roc_result, main="ROC Curve for reduced_4_4_lev")
+lines(x = c(0,1), y = c(0,1), col="red")
+
+auc<-performance(rates, measure = "auc")
+reduced_4_4_lev_auc <- auc@y.values
+
+## reduced_4_5_DDFFITS 
+preds<-predict(reduced_4_5_DDFFITS,newdata=test, type="response")
+rates<-prediction(preds, test$cat_quality)
+roc_result<-performance(rates,measure="tpr", x.measure="fpr")
+plot(roc_result, main="ROC Curve for reduced_4_5_DDFFITS")
+lines(x = c(0,1), y = c(0,1), col="red")
+
+auc<-performance(rates, measure = "auc")
+reduced_4_5_DDFFITS_auc <- auc@y.values
+
+## reduced_4_6_no_special 
+preds<-predict(reduced_4_6_no_special,newdata=test, type="response")
+rates<-prediction(preds, test$cat_quality)
+roc_result<-performance(rates,measure="tpr", x.measure="fpr")
+plot(roc_result, main="ROC Curve for reduced_4_6_no_special")
+lines(x = c(0,1), y = c(0,1), col="red")
+
+auc<-performance(rates, measure = "auc")
+reduced_4_6_no_special_auc <- auc@y.values
+
+AUC_summary <- data.frame('reduced_1'=reduced_1_auc,
+                          'reduced_4'=reduced_4_auc,
+                          'reduced_4_2'=reduced_4_2_auc,
+                          'reduced_4_3'=reduced_4_3_auc,
+                          'reduced_4_4_lev'=reduced_4_4_lev_auc,
+                          'reduced_4_5_DDFFITS'=reduced_4_5_DDFFITS_auc,
+                          'reduced_4_6_no_special'=reduced_4_6_no_special_auc)
+colnames(AUC_summary) <- c('reduced_1','reduced_4','reduced_4_2','reduced_4_3','reduced_4_4_lev','reduced_4_5_DDFFITS','reduced_4_6_no_special')
+
+AUC_summary
+```
+
+
+
+#
