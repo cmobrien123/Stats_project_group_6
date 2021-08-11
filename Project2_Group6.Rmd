@@ -1,0 +1,114 @@
+---
+title: "Project1_Group6"
+author: "Ryan Cox"
+date: "8/10/2021"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+library(tidyverse)
+library(leaps)
+library(ROCR)
+knitr::opts_chunk$set(echo = TRUE)
+
+## Load Datasets
+full_wines_final <- read.csv("Data_Final.csv", header = TRUE, stringsAsFactors=TRUE)
+# Drop quality for simplicity
+full_wines_binary <- subset(full_wines_final, select = -c(quality))
+## Convert to 0 and 1 for readability
+full_wines_binary$cat_quality <- as.integer(full_wines_binary$cat_quality == "High")
+
+set.seed(90210) ##for reproducibility
+sample<-sample.int(nrow(full_wines_binary), floor(.80*nrow(full_wines_binary)), replace = F)
+train<-full_wines_binary[sample, ] ##training data frame
+test<-full_wines_binary[-sample, ] ##test data frame
+
+train
+
+```
+
+``` {r}
+#Forward Selection
+regfull<-glm(cat_quality~.,family="binomial", data=train)
+regnull<-glm(cat_quality~1,family="binomial", data=train)
+step(regnull, scope=list(lower=regnull, upper=regfull), direction="forward")
+
+```
+
+```{r}
+##Backward Selection
+regfull<-glm(cat_quality~.,family="binomial", data=train)
+regnull<-glm(cat_quality~1,family="binomial", data=train)
+step(regfull, scope=list(lower=regnull, upper=regfull), direction="backward")
+```
+
+```{r}
+## Full model
+result <- glm(formula = cat_quality ~ alcohol + volatile.acidity + density + 
+    sulphates + residual.sugar + Type + total.sulfur.dioxide + 
+    free.sulfur.dioxide + pH + citric.acid + fixed.acidity, family = "binomial", 
+    data = train)
+preds <- predict(result,newdata=test, type="response")
+table(test$cat_quality, preds>0.5)
+```
+
+```{r}
+##Reduced Model
+result_reduced<- glm(formula = cat_quality ~ alcohol + volatile.acidity + density + 
+    sulphates + residual.sugar + Type + total.sulfur.dioxide + 
+    free.sulfur.dioxide + pH, family = "binomial", 
+    data = train)
+preds <- predict(result_reduced,newdata=test, type="response")
+table(test$cat_quality, preds>0.7)
+
+rates<-prediction(preds, test$cat_quality)
+roc_result<-performance(rates,measure="tpr", x.measure="fpr")
+##plot ROC curve and overlay the diagonal line for random guessing
+plot(roc_result, main="ROC Curve for Wine Quality")
+lines(x = c(0,1), y = c(0,1), col="red")
+```
+
+```{r}
+## AUC Curve
+auc<-performance(rates, measure = "auc")
+auc@y.values
+```
+
+```{r}
+### EXTRA R NOT NEEDED
+reds <- read.csv("wineQualityReds.csv", header = TRUE)
+whites <- read.csv("wineQualityWhites.csv", header = TRUE)
+reds$type<- "red"
+reds <- subset(reds, select = -c(X))
+whites$type<- "white"
+whites <- subset(whites, select = -c(X))
+full_wines <- rbind(reds, whites)
+regnull <- lm(alcohol~1, data=reds)
+regfull <- lm(alcohol~., data=reds)
+step(regnull, scope=list(lower=regnull, upper=regfull), direction="forward")
+regnull <- lm(quality~1, data=reds)
+regfull <- lm(quality~., data=reds)
+step(regnull, scope=list(lower=regnull, upper=regfull), direction="forward")
+# alcohol + volatile.acidity + sulphates +  total.sulfur.dioxide + chlorides + pH + free.sulfur.dioxide
+    
+regnull <- lm(quality~1, data=whites)
+regfull <- lm(quality~., data=whites)
+step(regnull, scope=list(lower=regnull, upper=regfull), direction="forward")
+# alcohol + volatile.acidity + residual.sugar +  free.sulfur.dioxide + density + pH + sulphates + fixed.acidity
+
+result <- lm(quality~alcohol, reds)
+summary(result)
+
+res<-result$residuals
+y.fitted<-result$fitted.values
+
+ggplot(full_wines, aes(x=sulphates,y=quality))+
+geom_point()+
+geom_smooth(method = "lm", se=FALSE)+
+labs(x="Sulphates",
+y="Quality",
+title="Scatterplot of Sulphates vs. Alcohol Content")
+```
+
+
+
