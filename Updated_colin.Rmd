@@ -3,6 +3,8 @@ title: "R Notebook"
 output: html_notebook
 ---
 
+
+
 # pulling in DFs and Merging (still needed?)
 ```{r}
 # #red wines
@@ -40,7 +42,7 @@ library(leaps)
 # install.packages("bestglm")
 library(bestglm)
 # install.packages("performance")
-library(performance)
+# library(performance)
 knitr::opts_chunk$set(echo = TRUE)
 
 ## Load Datasets
@@ -237,7 +239,15 @@ evulation_summary <- rbind(evulation_summary,evulation_summary_4)
 ```
 
 ```{r}
-data.frame(check_collinearity(reduced_4))
+# data.frame(check_collinearity(reduced_4))
+
+
+
+
+
+
+
+
 
 
 #come back and add df stuff
@@ -373,30 +383,44 @@ reduced_4_6_no_special <- glm(cat_quality~volatile.acidity+citric.acid+residual.
 
 ```{r}
 ## checking colinearity / VIF scores
-reduced_4_3_col <- data.frame('reduced_4_3' = check_collinearity(reduced_4_3))
-reduced_4_3_col_VIF <- reduced_4_3_col[c('reduced_4_3.Term','reduced_4_3.VIF')]
-reduced_4_3_col_VIF
+# reduced_4_3_col <- data.frame('reduced_4_3' = check_collinearity(reduced_4_3))
+# reduced_4_3_col_VIF <- reduced_4_3_col[c('reduced_4_3.Term','reduced_4_3.VIF')]
+# reduced_4_3_col_VIF
+# 
+# reduced_4_4_lev_col <- data.frame('reduced_4_4_lev' = check_collinearity(reduced_4_4_lev))
+# reduced_4_4_lev_col_VIF <- reduced_4_4_lev_col[c('reduced_4_4_lev.Term','reduced_4_4_lev.VIF')]
+# reduced_4_4_lev_col_VIF
+# 
+# 
+# reduced_4_5_DDFFITS_col <- data.frame('reduced_4_5_DDFFITS' = check_collinearity(reduced_4_5_DDFFITS))
+# reduced_4_5_DDFFITS_col_VIF <- reduced_4_5_DDFFITS_col[c('reduced_4_5_DDFFITS.Term','reduced_4_5_DDFFITS.VIF')]
+# reduced_4_5_DDFFITS_col_VIF
+# 
+# reduced_4_6_no_special_col <- data.frame('reduced_4_6_no_special' = check_collinearity(reduced_4_6_no_special))
+# reduced_4_6_no_special_col_VIF <- reduced_4_6_no_special_col[c('reduced_4_6_no_special.Term','reduced_4_6_no_special.VIF')]
+# reduced_4_6_no_special_col_VIF
+# 
+# VIF_summary <- data.frame('0'=reduced_4_3_col_VIF['reduced_4_3.Term'],
+#                           '1'=reduced_4_3_col_VIF['reduced_4_3.VIF'],
+#                           '2'=reduced_4_4_lev_col_VIF['reduced_4_4_lev.VIF'],
+#                           '3'=reduced_4_5_DDFFITS_col_VIF['reduced_4_5_DDFFITS.VIF'],
+#                           '4'=reduced_4_6_no_special_col_VIF['reduced_4_6_no_special.VIF'])
+# colnames(VIF_summary) <- c('Predictor Variable','4_3.VIF.Outliers','4_4_lev.VIF','4_5_DDFFITS.VIF','4_6_no_special.VIF')
+# VIF_summary
 
-reduced_4_4_lev_col <- data.frame('reduced_4_4_lev' = check_collinearity(reduced_4_4_lev))
-reduced_4_4_lev_col_VIF <- reduced_4_4_lev_col[c('reduced_4_4_lev.Term','reduced_4_4_lev.VIF')]
-reduced_4_4_lev_col_VIF
+## VIF for Outliers
+### cat_quality~volatile.acidity+citric.acid+residual.sugar+total.sulfur.dioxide+density+free.sulfur.dioxide+pH+sulphates+alcohol+Type
+outliers_VIF <- vif(train_no_outliers[c(2,3,4,7,8,6,9,10,11,12)])
+leverage_VIF <- vif(train_no_leverages[c(2,3,4,7,8,6,9,10,11,12)])
+DDFFITS_VIF <- vif(train_no_DDFFITS[c(2,3,4,7,8,6,9,10,11,12)])
+nothing_special <- vif(train_nothing_special[c(2,3,4,7,8,6,9,10,11,12)])
 
+VIF_summary_test <- data.frame('outliers_VIF'=outliers_VIF,
+                               'leverage_VIF'=leverage_VIF,
+                               'DDFFITS_VIF'= DDFFITS_VIF,
+                               'nothing_special'=nothing_special)
+VIF_summary_test
 
-reduced_4_5_DDFFITS_col <- data.frame('reduced_4_5_DDFFITS' = check_collinearity(reduced_4_5_DDFFITS))
-reduced_4_5_DDFFITS_col_VIF <- reduced_4_5_DDFFITS_col[c('reduced_4_5_DDFFITS.Term','reduced_4_5_DDFFITS.VIF')]
-reduced_4_5_DDFFITS_col_VIF
-
-reduced_4_6_no_special_col <- data.frame('reduced_4_6_no_special' = check_collinearity(reduced_4_6_no_special))
-reduced_4_6_no_special_col_VIF <- reduced_4_6_no_special_col[c('reduced_4_6_no_special.Term','reduced_4_6_no_special.VIF')]
-reduced_4_6_no_special_col_VIF
-
-VIF_summary <- data.frame('0'=reduced_4_3_col_VIF['reduced_4_3.Term'],
-                          '1'=reduced_4_3_col_VIF['reduced_4_3.VIF'],
-                          '2'=reduced_4_4_lev_col_VIF['reduced_4_4_lev.VIF'],
-                          '3'=reduced_4_5_DDFFITS_col_VIF['reduced_4_5_DDFFITS.VIF'],
-                          '4'=reduced_4_6_no_special_col_VIF['reduced_4_6_no_special.VIF'])
-colnames(VIF_summary) <- c('Predictor Variable','4_3.VIF.Outliers','4_4_lev.VIF','4_5_DDFFITS.VIF','4_6_no_special.VIF')
-VIF_summary
 ```
 
 
@@ -495,8 +519,10 @@ evulation_summary
 ## ROC Curves and AUC
 ```{r}
 ## reduced_1
-detach(package:performance, unload=TRUE)
+# detach(package:performance, unload=TRUE)
 ##FYI the performance package causes ROC curves to not work
+library(ROCR)
+
 
 
 # reduced_1
