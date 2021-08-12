@@ -45,9 +45,12 @@ library(bestglm)
 # library(performance)
 knitr::opts_chunk$set(echo = TRUE)
 
+
+
 ## Load Datasets
 full_wines_final <- read.csv("Data_Final.csv", header = TRUE, stringsAsFactors=TRUE)
 # Drop quality for simplicity
+full_wines_binary_with_qual<-full_wines_final
 full_wines_binary <- subset(full_wines_final, select = -c(quality))
 ## Convert to 0 and 1 for readability
 full_wines_binary$cat_quality <- as.integer(full_wines_binary$cat_quality == "High")
@@ -57,6 +60,11 @@ sample<-sample.int(nrow(full_wines_binary), floor(.80*nrow(full_wines_binary)), 
 train<-full_wines_binary[sample, ] ##training data frame
 rownames(train) <- c(1:5197)
 test<-full_wines_binary[-sample, ] ##test data frame
+
+## Just for a single boxplot
+train_with_qual<-full_wines_binary_with_qual[sample,]
+test_with_qual<-full_wines_binary_with_qual[-sample,]
+
 
 train
 ```
@@ -97,6 +105,9 @@ ggplot(data = melted_cor_train, aes(x=Var1, y=Var2, fill=value)) +
   theme(axis.text.x = element_text(angle = 45, vjust = 1, size = 12, hjust = 1))+
   coord_fixed()+
   labs(title = 'Consolidated (Both Red and White)')
+
+
+
 
 ```
 
@@ -363,6 +374,22 @@ train_nothing_special
 
 
 ```
+```{r}
+vif(train[c(2,3,4,7,8,6,9,10,11)])
+```
+
+```{r}
+train_temp<-train
+# as.factor(train_temp$Type)<-numeric(train_temp$Type)
+#train_temp
+# as.factor
+
+train_temp$Type <- as.numeric(train_temp$Type)-1
+train_temp$Type <- as.integer(train_temp$Type)
+train_temp
+```
+
+
 
 ## creating reduced 
 
@@ -410,12 +437,21 @@ reduced_4_6_no_special <- glm(cat_quality~volatile.acidity+citric.acid+residual.
 
 ## VIF for Outliers
 ### cat_quality~volatile.acidity+citric.acid+residual.sugar+total.sulfur.dioxide+density+free.sulfur.dioxide+pH+sulphates+alcohol+Type
+
+
+#
+reg_4_VIF_test <- vif(train_temp[c(1,2,3,4,7,8,6,9,10,11,12)])
+reg_4_2_VIF_test <- vif(train_temp[c(2,3,4,7,8,6,9,10,11,12)])
 outliers_VIF <- vif(train_no_outliers[c(2,3,4,7,8,6,9,10,11,12)])
 leverage_VIF <- vif(train_no_leverages[c(2,3,4,7,8,6,9,10,11,12)])
 DDFFITS_VIF <- vif(train_no_DDFFITS[c(2,3,4,7,8,6,9,10,11,12)])
 nothing_special <- vif(train_nothing_special[c(2,3,4,7,8,6,9,10,11,12)])
 
-VIF_summary_test <- data.frame('outliers_VIF'=outliers_VIF,
+
+reg_4_VIF_test
+
+VIF_summary_test <- data.frame('best_possible_VIF (post)'=reg_4_2_VIF_test,
+                               'outliers_VIF'=outliers_VIF,
                                'leverage_VIF'=leverage_VIF,
                                'DDFFITS_VIF'= DDFFITS_VIF,
                                'nothing_special'=nothing_special)
@@ -520,7 +556,7 @@ evulation_summary
 ```{r}
 ## reduced_1
 # detach(package:performance, unload=TRUE)
-##FYI the performance package causes ROC curves to not work
+## FYI the performance package causes ROC curves to not work
 library(ROCR)
 
 
@@ -609,4 +645,566 @@ AUC_summary
 
 
 
+
+
+## Ryan's part starts here
+
+### The goal is to make 3 models: One for just white, one for just red, and one with interaction terms with the type of wine. 
+
+#### After that, the models will be trained on the filtered datasets and the resulting scores will be added to the evaluation summary.
+
+
+## Red wine only model
+```{r}
+regfull_Red<-glm(cat_quality~., family="binomial", data=train_Red_NoType)
+regnull_Red<-glm(cat_quality~1, family="binomial", data=train_Red_NoType)
+step(regnull_Red, scope=list(lower=regnull_Red, upper=regfull_Red), direction="forward")
+
+```
+
+
+The model looks great after the foward selection! Time to test and add to the evaluation summary.
+```{r}
+model1_Red<-glm(formula = cat_quality ~ alcohol + volatile.acidity + total.sulfur.dioxide + 
+    sulphates + free.sulfur.dioxide + chlorides, family = "binomial", 
+    data = train_Red_NoType)
+
+summary(model1_Red)
+
+
+```
+
+```{r}
+
+##evaluating model
+model1_Red_AIC_train <- model1_Red$aic
+##predicted quality for test data based on training data
+test_Red_NoType<-subset(test, Type == 0, select=-c(Type))
+preds<-predict(model1_Red,newdata=test_Red_NoType, type="response")
+model1_Red_error <- table(test_Red_NoType$cat_quality, preds>0.7)
+#Curves
+evulation_summary_1R <- data.frame(
+  attempt = 'model1_Red',
+  AIC = model1_Red_AIC_train,
+  PRESS = get_press(model1_Red),
+  'False positive' = round(model1_Red_error[3]/(model1_Red_error[1]+model1_Red_error[3]),3),
+  'False negative' = round(model1_Red_error[2]/(model1_Red_error[2]+model1_Red_error[4]),3),
+  'Error Rate' = round((model1_Red_error[2]+model1_Red_error[3])/(model1_Red_error[1]+model1_Red_error[2]+model1_Red_error[3]+model1_Red_error[4]),3)
+)
+
+compare_models<-rbind(evulation_summary[1,],evulation_summary_1R)
+compare_models
+
+evulation_summary <- rbind(evulation_summary,evulation_summary_1R)
+evulation_summary
+
+```
+```{r}
+# model1_Red
+library(ROCR)
+preds<-predict(model1_Red,newdata=test, type="response")
+rates<-prediction(preds, test$cat_quality)
+roc_result<-performance(rates,measure="tpr", x.measure="fpr")
+plot(roc_result, main="ROC Curve for model1_Red")
+lines(x = c(0,1), y = c(0,1), col="red")
+
+auc<-performance(rates, measure = "auc")
+model1_Red_auc <- auc@y.values
+
+```
+
+## White wine only model
+
+```{r}
+regfull_White<-glm(cat_quality~., family="binomial", data=train_White_NoType)
+regnull_White<-glm(cat_quality~1,family="binomial", data=train_White_NoType)
+step(regnull_White, scope=list(lower=regnull_White, upper=regfull_White), direction="forward")
+```
+
+
+The model looks good after the foward selection, but the predictor fixed.acidity can be removed. The density VIF is above ten, but jsut barely. For now, it will be left in. Time to test and add to the evaluation summary.
+```{r}
+model1_White<-glm(formula = cat_quality ~ alcohol + volatile.acidity + residual.sugar + 
+    fixed.acidity + sulphates + free.sulfur.dioxide + density + 
+    pH, family = "binomial", data = train_White_NoType)
+
+
+summary(model1_White)
+
+
+model1_White<-glm(formula = cat_quality ~ alcohol + volatile.acidity + residual.sugar + sulphates + free.sulfur.dioxide + density + 
+    pH, family = "binomial", data = train_White_NoType)
+
+summary(model1_White)
+
+
+```
+
+
+```{r}
+
+##evaluating model
+model1_White_AIC_train <- model1_White$aic
+##predicted quality for test data based on training data
+test_White_NoType<-subset(test, Type == 1, select=-c(Type))
+preds<-predict(model1_White,newdata=test_White_NoType, type="response")
+model1_White_error <- table(test_White_NoType$cat_quality, preds>0.7)
+#Curves
+evulation_summary_1W <- data.frame(
+  attempt = 'model1_White',
+  AIC = model1_White_AIC_train,
+  PRESS = get_press(model1_White),
+  'False positive' = round(model1_White_error[3]/(model1_White_error[1]+model1_White_error[3]),3),
+  'False negative' = round(model1_White_error[2]/(model1_White_error[2]+model1_White_error[4]),3),
+  'Error Rate' = round((model1_White_error[2]+model1_White_error[3])/(model1_White_error[1]+model1_White_error[2]+model1_White_error[3]+model1_White_error[4]),3)
+)
+
+evulation_summary <- rbind(evulation_summary,evulation_summary_1W)
+evulation_summary
+
+
+compare_models<-rbind(compare_models,evulation_summary_1W)
+compare_models
+
+```
+
+
+
+## The model with interaction terms
+
+```{r}
+regfull_int<-glm(cat_quality~.*Type, family="binomial", data=train)
+regnull_int<-glm(cat_quality~1,family="binomial", data=train)
+step(regnull_int, scope=list(lower=regnull_int, upper=regfull_int), direction="forward")
+```
+
+
+The forward step process dropped + sulphates:Type, fixed.acidity, alcohol:Type, and citric.acid  By the hierarchical principle, the two non-interactive terms need to be added back because their have interaction terms are in the model.
+```{r}
+ model1_int<-glm(formula = cat_quality ~ alcohol + volatile.acidity + density + 
+    sulphates + residual.sugar +  Type + total.sulfur.dioxide + 
+    free.sulfur.dioxide + pH + chlorides + volatile.acidity:Type + 
+    Type:total.sulfur.dioxide + density:Type + residual.sugar:Type + 
+    Type:pH + Type:chlorides + Type:free.sulfur.dioxide, family = "binomial", 
+    data = train)
+summary(model1_int)
+
+```
+
+
+```{r}
+
+##evaluating model
+model1_int_AIC_train <- model1_int$aic
+##predicted quality for test data based on training data
+preds<-predict(model1_int,newdata=test, type="response")
+model1_int_error <- table(test$cat_quality, preds>0.7)
+#Curves
+evulation_summary_1int <- data.frame(
+  attempt = 'model1_int',
+  AIC = model1_int_AIC_train,
+  PRESS = get_press(model1_int),
+  'False positive' = round(model1_int_error[3]/(model1_int_error[1]+model1_int_error[3]),3),
+  'False negative' = round(model1_int_error[2]/(model1_int_error[2]+model1_int_error[4]),3),
+  'Error Rate' = round((model1_int_error[2]+model1_int_error[3])/(model1_int_error[1]+model1_int_error[2]+model1_int_error[3]+model1_int_error[4]),3)
+)
+
+evulation_summary <- rbind(evulation_summary,evulation_summary_1int)
+evulation_summary
+
+compare_models<-rbind(compare_models,evulation_summary_1int)
+compare_models
+
+```
+
+```{r}
+compare_models<-compare_models%>% 
+  rename(
+    Model = attempt
+    )
+
+```
+
+
+```{r}
+library(data.table)
+library(dplyr)
+library(formattable)
+library(tidyr)
+customGreen0 = "#DeF7E9"
+
+customGreen = "#71CA97"
+
+customRed = "#ff7f7f"
+
+```
+
+
+
+
+
+
+
+
+
+
+
+
+
+Creating the ROC curves and AUC for the 3 new models.
+```{r}
+# model1_Red
+preds<-predict(model1_Red,newdata=test, type="response")
+rates<-prediction(preds, test$cat_quality)
+roc_result<-performance(rates,measure="tpr", x.measure="fpr")
+plot(roc_result, main="ROC Curve for model1_Red")
+lines(x = c(0,1), y = c(0,1), col="red")
+
+auc<-performance(rates, measure = "auc")
+model1_Red_auc <- auc@y.values
+
+
+# model1_White
+preds<-predict(model1_White,newdata=test, type="response")
+rates<-prediction(preds, test$cat_quality)
+roc_result<-performance(rates,measure="tpr", x.measure="fpr")
+plot(roc_result, main="ROC Curve for model1_White")
+lines(x = c(0,1), y = c(0,1), col="red")
+
+auc<-performance(rates, measure = "auc")
+model1_White_auc <- auc@y.values
+
+
+# model1_int
+preds<-predict(model1_int,newdata=test, type="response")
+rates<-prediction(preds, test$cat_quality)
+roc_result<-performance(rates,measure="tpr", x.measure="fpr")
+plot(roc_result, main="ROC Curve for model1_int")
+lines(x = c(0,1), y = c(0,1), col="red")
+
+auc<-performance(rates, measure = "auc")
+model1_int_auc <- auc@y.values
+```
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+## This is the one liners that run the tables and figures!
+
+
+
+
+
+```{r}
+
+##create heat map Consolidated
+ggplot(data = melted_cor_train, aes(x=Var1, y=Var2, fill=value)) + 
+  geom_tile(color = "white")+
+  scale_fill_gradient2(low = "blue", high = "red", mid = "white", midpoint = 0, limit = c(-1,1), space = "Lab", name="Pearson\nCorrelation") +
+  theme_minimal()+ 
+  theme(axis.text.x = element_text(angle = 45, vjust = 1, size = 12, hjust = 1))+
+  coord_fixed()+
+  labs(title = 'Consolidated (Both Red and White)')
+
+```
+
+```{r}
+##create heat map White
+ggplot(data = melted_cor_train_white, aes(x=Var1, y=Var2, fill=value)) +
+  geom_tile(color = "white")+
+  scale_fill_gradient2(low = "blue", high = "red", mid = "white", midpoint = 0, limit = c(-1,1), space = "Lab", name="Pearson\nCorrelation") +
+  theme_minimal()+
+  theme(axis.text.x = element_text(angle = 45, vjust = 1, size = 12, hjust = 1))+
+  coord_fixed()+
+  labs(title = 'White Wine')
+
+```
+
+```{r}
+##create heat map Red
+ggplot(data = melted_cor_train_Red, aes(x=Var1, y=Var2, fill=value)) +
+  geom_tile(color = "white")+
+  scale_fill_gradient2(low = "blue", high = "red", mid = "white", midpoint = 0, limit = c(-1,1), space = "Lab", name="Pearson\nCorrelation") +
+  theme_minimal()+
+  theme(axis.text.x = element_text(angle = 45, vjust = 1, size = 12, hjust = 1))+
+  coord_fixed()+
+  labs(title = 'Red Wine')
+
+```
+
+
+
+
+
+```{r}
+
+
+ggplot(train_with_qual, mapping = aes(x=quality, fill=Type))+
+  geom_histogram(binwidth=1, alpha=.4, position="identity", color="black")+
+  geom_vline(aes(xintercept=5.5, color="red"),
+             linetype="dashed")+
+  scale_color_manual(name = "Cut Off", values = c("red"))+
+  labs(x="Quality",
+       y="Frequency",
+       title="Distribution of Quality Rating by Wine Type")
+```
+
+
+
+This is the table for showing the evaluation for the first model
+```{r}
+formattable(evulation_summary[1,])
+```
+
+
+
+```{r}
+summary(model1_Red)
+```
+
+```{r}
+summary(model1_White)
+```
+
+
+```{r}
+summary(model1_int)
+```
+
+
+
+
+Table right above the "Best Possible Model (Reduced_4)" section.
+```{r}
+formattable(compare_models,align =c("l","c", "c", "c", "c", "r"))
+
+```
+
+
+
+
+This is the table for showing the best models (top five)
+```{r}
+formattable(res.best.logistic$BestModels)
+```
+
+
+Add ROC for reduced_1, model1_Red, model1_White, model1_int
+
+```{r}
+
+preds<-predict(reduced_1,newdata=test, type="response")
+rates<-prediction(preds, test$cat_quality)
+roc_result<-performance(rates,measure="tpr", x.measure="fpr")
+plot(roc_result, main="ROC Curve for reduced_1")
+lines(x = c(0,1), y = c(0,1), col="red")
+
+auc<-performance(rates, measure = "auc")
+reduced_1_auc <- auc@y.values
+
+```
+
+
+```{r}
+# model1_Red
+preds<-predict(model1_Red,newdata=test, type="response")
+rates<-prediction(preds, test$cat_quality)
+roc_result<-performance(rates,measure="tpr", x.measure="fpr")
+plot(roc_result, main="ROC Curve for model1_Red")
+lines(x = c(0,1), y = c(0,1), col="red")
+
+auc<-performance(rates, measure = "auc")
+model1_Red_auc <- auc@y.values
+
+```
+
+```{r}
+
+# model1_White
+preds<-predict(model1_White,newdata=test, type="response")
+rates<-prediction(preds, test$cat_quality)
+roc_result<-performance(rates,measure="tpr", x.measure="fpr")
+plot(roc_result, main="ROC Curve for model1_White")
+lines(x = c(0,1), y = c(0,1), col="red")
+
+auc<-performance(rates, measure = "auc")
+model1_White_auc <- auc@y.values
+
+```
+
+```{r}
+
+# model1_int
+preds<-predict(model1_int,newdata=test, type="response")
+rates<-prediction(preds, test$cat_quality)
+roc_result<-performance(rates,measure="tpr", x.measure="fpr")
+plot(roc_result, main="ROC Curve for model1_int")
+lines(x = c(0,1), y = c(0,1), col="red")
+
+auc<-performance(rates, measure = "auc")
+model1_int_auc <- auc@y.values
+```
+
+
+This is the table for showing the best models (top five)
+```{r}
+formattable(evulation_summary[2,])
+```
+
+
+This is the table for reduced_4 VIF.
+```{r}
+formattable(data.frame(reg_4_VIF_test), align =c("l","r"))
+```
+
+This is the next VIF plot in the report
+```{r}
+formattable(data.frame(reg_4_2_VIF_test), align =c("l","r"))
+```
+
+
+The table below that. It is the evaluation summary for reduced_4_2
+```{r}
+formattable(evulation_summary[3,])
+```
+
+
+evaluation summary for the outlier/leverage/etc.
+```{r}
+formattable(evulation_summary[4:7,])
+```
+
+
+
+add roc curves for these four.
+
+```{r}
+
+
+## reduced_4
+preds<-predict(reduced_4,newdata=test, type="response")
+rates4<-prediction(preds, test$cat_quality)
+roc_result<-performance(rates4,measure="tpr", x.measure="fpr")
+plot(roc_result, main="ROC Curve for reduced_4")
+lines(x = c(0,1), y = c(0,1), col="red")
+
+auc4<-performance(rates4, measure = "auc")
+reduced_4_auc <- auc4@y.values
+
+```
+
+```{r}
+
+## reduced_4_2
+preds<-predict(reduced_4_2,newdata=test, type="response")
+rates<-prediction(preds, test$cat_quality)
+roc_result<-performance(rates,measure="tpr", x.measure="fpr")
+plot(roc_result, main="ROC Curve for reduced_4_2")
+lines(x = c(0,1), y = c(0,1), col="red")
+
+auc4_2<-performance(rates, measure = "auc")
+reduced_4_2_auc <- auc4_2@y.values
+
+```
+
+
+```{r}
+
+## reduced_4_3
+preds<-predict(reduced_4_3,newdata=test, type="response")
+rates<-prediction(preds, test$cat_quality)
+roc_result<-performance(rates,measure="tpr", x.measure="fpr")
+plot(roc_result, main="ROC Curve for reduced_4_3")
+lines(x = c(0,1), y = c(0,1), col="red")
+
+auc<-performance(rates, measure = "auc")
+reduced_4_3_auc <- auc@y.values
+
+
+```
+
+
+```{r}
+## reduced_4_4_lev 
+preds<-predict(reduced_4_4_lev,newdata=test, type="response")
+rates<-prediction(preds, test$cat_quality)
+roc_result<-performance(rates,measure="tpr", x.measure="fpr")
+plot(roc_result, main="ROC Curve for reduced_4_4_lev")
+lines(x = c(0,1), y = c(0,1), col="red")
+
+auc<-performance(rates, measure = "auc")
+reduced_4_4_lev_auc <- auc@y.values
+
+```
+
+```{r}
+
+## reduced_4_5_DDFFITS 
+preds<-predict(reduced_4_5_DDFFITS,newdata=test, type="response")
+rates<-prediction(preds, test$cat_quality)
+roc_result<-performance(rates,measure="tpr", x.measure="fpr")
+plot(roc_result, main="ROC Curve for reduced_4_5_DDFFITS")
+lines(x = c(0,1), y = c(0,1), col="red")
+
+auc<-performance(rates, measure = "auc")
+reduced_4_5_DDFFITS_auc <- auc@y.values
+
+```
+
+
+
+
+```{r}
+
+## reduced_4_6_no_special 
+preds<-predict(reduced_4_6_no_special,newdata=test, type="response")
+rates<-prediction(preds, test$cat_quality)
+roc_result<-performance(rates,measure="tpr", x.measure="fpr")
+plot(roc_result, main="ROC Curve for reduced_4_6_no_special")
+lines(x = c(0,1), y = c(0,1), col="red")
+
+auc<-performance(rates, measure = "auc")
+reduced_4_6_no_special_auc <- auc@y.values
+
+```
+
+```{r}
+AUC_summary <- data.frame('reduced_1'=reduced_1_auc,
+                          'reduced_4'=reduced_4_auc,
+                          'reduced_4_2'=reduced_4_2_auc,
+                          'reduced_4_3'=reduced_4_3_auc,
+                          'reduced_4_4_lev'=reduced_4_4_lev_auc,
+                          'reduced_4_5_DDFFITS'=reduced_4_5_DDFFITS_auc,
+                          'reduced_4_6_no_special'=reduced_4_6_no_special_auc)
+colnames(AUC_summary) <- c('reduced_1','reduced_4','reduced_4_2','reduced_4_3','reduced_4_4_lev','reduced_4_5_DDFFITS','reduced_4_6_no_special')
+
+AUC_summary
+```
+
+
+
+
+
 #
+
+
